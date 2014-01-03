@@ -5,10 +5,32 @@ module RedmineHelpdesk
       
       base.class_eval do
         alias_method_chain :issue_edit,  :helpdesk
+        alias_method_chain :issue_add,  :helpdesk
       end
     end
 
     module InstanceMethods
+      def issue_add_with_helpdesk(issue, to_users, cc_users)
+        redmine_headers 'Project' => issue.project.identifier,
+                        'Issue-Id' => issue.id,
+                        'Issue-Author' => issue.author.login
+        redmine_headers 'Issue-Assignee' => issue.assigned_to.login if issue.assigned_to
+        message_id issue
+        references issue
+        @author = issue.author
+        @issue = issue
+        @users = to_users + cc_users
+        @issue_url = url_for(:controller => 'issues', :action => 'show', :id => issue)
+    
+        p = issue.project
+    	f = CustomField.find_by_name('helpdesk-sender-email')
+	    sender = p.custom_value_for(f).try(:value) if p.present? && f.present?
+    	headers["Reply-To"] = sender.to_s if p.present? && f.present?
+    
+        mail :to => to_users.map(&:mail),
+          :cc => cc_users.map(&:mail),
+          :subject => "[#{issue.project.name} - #{issue.tracker.name} ##{issue.id}] (#{issue.status.name}) #{issue.subject}"
+      end
       # Overrides the issue_edit method which is only
       # be called on existing tickets. We will add the
       # owner-email to the recipients only if no email-
@@ -45,6 +67,12 @@ module RedmineHelpdesk
         @journal = journal
         @journal_details = journal.visible_details(@users.first)
         @issue_url = url_for(:controller => 'issues', :action => 'show', :id => issue, :anchor => "change-#{journal.id}")
+        
+        p = issue.project
+    	f = CustomField.find_by_name('helpdesk-sender-email')
+	    sender = p.custom_value_for(f).try(:value) if p.present? && f.present?
+    	headers["Reply-To"] = sender.to_s if p.present? && f.present?
+    
         mail(
           :to => to_users.map(&:mail),
           :cc => cc_users.map(&:mail),
